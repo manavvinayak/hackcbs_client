@@ -47,8 +47,9 @@ export default function Interview({ user, onNavigate }) {
       setError(null)
       console.log(`🔍 Fetching questions for type: ${interviewType}`)
       
+      const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:5001"
       const token = localStorage.getItem("token")
-      const response = await fetch(`/api/questions?type=${interviewType}`)
+      const response = await fetch(`${apiUrl}/api/questions?type=${interviewType}`)
       console.log("re2: ")
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
@@ -131,8 +132,9 @@ export default function Interview({ user, onNavigate }) {
     formData.append("emotionData", JSON.stringify(emotionData))
 
     try {
+      const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:5001"
       const token = localStorage.getItem("token")
-      const response = await fetch("/api/analyze", {
+      const response = await fetch(`${apiUrl}/api/analyze`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
@@ -252,7 +254,8 @@ export default function Interview({ user, onNavigate }) {
 
       console.log('💾 Submitting session:', sessionData)
 
-      const response = await fetch("http://localhost:5001/api/sessions", {
+      const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:5001"
+      const response = await fetch(`${apiUrl}/api/sessions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

@@ -27,7 +27,8 @@ export default function Dashboard() {
 
   const fetchSessions = async () => {
     try {
-      const response = await fetch("http://localhost:5001/api/sessions")
+      const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:5001"
+      const response = await fetch(`${apiUrl}/api/sessions`)
       const data = await response.json()
       setSessions(data.sessions || [])
       setAnalytics(data.analytics || {
@@ -47,7 +48,8 @@ export default function Dashboard() {
 
   const generateSampleData = async () => {
     try {
-      const response = await fetch("http://localhost:5001/api/sessions/generate-sample", {
+      const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:5001"
+      const response = await fetch(`${apiUrl}/api/sessions/generate-sample`, {
         method: "POST",
       })
       const data = await response.json()
@@ -68,7 +70,8 @@ export default function Dashboard() {
     formData.append("resume", file)
 
     try {
-      const response = await fetch("/api/resume/upload", {
+      const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:5001"
+      const response = await fetch(`${apiUrl}/api/resume/upload`, {
         method: "POST",
         body: formData,
       })
