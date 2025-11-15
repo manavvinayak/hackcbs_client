@@ -6,7 +6,7 @@ export default function About() {
       <div className="max-w-6xl mx-auto px-4">
         {/* Hero Section */}
         <div className="text-center mb-16">
-          <h1 className="text-5xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-6">
+          <h1 className="text-5xl font-bold bg-black bg-clip-text text-transparent mb-6">
             About InterviewPro
           </h1>
           <p className="text-xl text-gray-600 max-w-3xl mx-auto leading-relaxed">
@@ -24,7 +24,7 @@ export default function About() {
                 to democratize access to high-quality interview preparation, making it possible for anyone to practice and improve 
                 their interview skills with cutting-edge AI technology.
               </p>
-              <p className="text-gray-600 text-lg leading-relaxed">
+              <p className="text-gray-700 text-lg leading-relaxed">
                 Our platform combines advanced emotion detection, body language analysis, and personalized feedback to help 
                 candidates build confidence and improve their performance in real interviews.
               </p>
