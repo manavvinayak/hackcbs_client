@@ -22,18 +22,14 @@ export default function Navbar() {
           >
             Home
           </Link>
-          <Link
-            to="/about"
-            className="text-gray-700 hover:text-purple-700 font-medium transition-colors"
-          >
-            About Us
-          </Link>
+          
           <Link
             to="/how-to-use"
             className="text-gray-700 hover:text-purple-700 font-medium transition-colors"
           >
             How to Use
           </Link>
+         
           <Link
             to="/contact"
             className="text-gray-700 hover:text-purple-700 font-medium transition-colors"

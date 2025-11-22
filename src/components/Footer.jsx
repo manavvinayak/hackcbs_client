@@ -49,11 +49,7 @@ export default function Footer() {
                   Home
                 </Link>
               </li>
-              <li>
-                <Link to="/about" className="text-gray-300 hover:text-white transition-colors">
-                  About Us
-                </Link>
-              </li>
+             
               <li>
                 <Link to="/how-to-use" className="text-gray-300 hover:text-white transition-colors">
                   How to Use
@@ -82,15 +78,11 @@ export default function Footer() {
                 </a>
               </li>
               <li>
-                <a href="#" className="text-gray-300 hover:text-white transition-colors">
-                  Privacy Policy
-                </a>
+                  <Link to="/privacy" className="text-gray-300 hover:text-white transition-colors">
+                  Terms and conditions
+                </Link>
               </li>
-              <li>
-                <a href="#" className="text-gray-300 hover:text-white transition-colors">
-                  Terms of Service
-                </a>
-              </li>
+             
             </ul>
           </div>
         </div>
