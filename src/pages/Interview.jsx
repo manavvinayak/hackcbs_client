@@ -5,7 +5,7 @@ import WebcamFeed from "../components/WebcamFeed"
 import FeedbackPanel from "../components/FeedbackPanel"
 import AIFeedbackPanel from "../components/AIFeedbackPanel"
 import QuestionDisplay from "../components/QuestionDisplay"
-import hark from "hark" // NEW: Speech detection library
+import hark from "hark"
 
 export default function Interview({ user, onNavigate }) {
   const [questions, setQuestions] = useState([])
@@ -28,32 +28,31 @@ export default function Interview({ user, onNavigate }) {
   })
   const [scoreHistory, setScoreHistory] = useState([])
   const [lastDetectionTime, setLastDetectionTime] = useState(Date.now())
-  const [userPresent, setUserPresent] = useState(true)
-  const [faceDetected, setFaceDetected] = useState(false) // NEW: Track actual face detection
+  const [userPresent, setUserPresent] = useState(false)
+  const [faceDetected, setFaceDetected] = useState(false)
   const [lastSpeechTime, setLastSpeechTime] = useState(Date.now())
-  const [isSpeaking, setIsSpeaking] = useState(false) // NEW: Track actual speech
+  const [isSpeaking, setIsSpeaking] = useState(false)
   const [showSpeakAlert, setShowSpeakAlert] = useState(false)
   const [silenceDuration, setSilenceDuration] = useState(0)
   const [interviewCompleted, setInterviewCompleted] = useState(false)
   const [sessionAnswers, setSessionAnswers] = useState([])
   const [submittingSession, setSubmittingSession] = useState(false)
+  const [averageScores, setAverageScores] = useState(null) // NEW: Store final average scores
   
   const mediaRecorderRef = useRef(null)
   const chunksRef = useRef([])
-  const speechEventsRef = useRef(null) // NEW: Speech detection reference
-  const audioStreamRef = useRef(null) // NEW: Audio stream reference
+  const speechEventsRef = useRef(null)
+  const audioStreamRef = useRef(null)
 
   const interviewType = localStorage.getItem("interviewType") || "behavioral"
 
   useEffect(() => {
-    // Generate session ID
     const newSessionId = `interview_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
     setSessionId(newSessionId)
     
     fetchQuestions()
     
     return () => {
-      // Cleanup speech detection on unmount
       if (speechEventsRef.current) {
         speechEventsRef.current.stop()
       }
@@ -89,7 +88,6 @@ export default function Interview({ user, onNavigate }) {
       console.error("❌ Error fetching questions:", err)
       setError(`Failed to load questions: ${err.message}`)
       
-      // Fallback questions if API fails
       const fallbackQuestions = [
         {
           id: 'fallback-1',
@@ -111,12 +109,11 @@ export default function Interview({ user, onNavigate }) {
     }
   }
 
-  // NEW: Setup speech detection using hark
   const setupSpeechDetection = (stream) => {
     try {
       const speechEvents = hark(stream, {
-        threshold: -50, // Audio threshold
-        interval: 100    // Check every 100ms
+        threshold: -50,
+        interval: 100
       })
 
       speechEvents.on('speaking', () => {
@@ -144,7 +141,6 @@ export default function Interview({ user, onNavigate }) {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true })
       audioStreamRef.current = stream
       
-      // NEW: Setup speech detection
       setupSpeechDetection(stream)
       
       mediaRecorderRef.current = new MediaRecorder(stream)
@@ -178,13 +174,11 @@ export default function Interview({ user, onNavigate }) {
           setRecording(false)
           setRecordingStopped(true)
           
-          // Stop speech detection
           if (speechEventsRef.current) {
             speechEventsRef.current.stop()
             speechEventsRef.current = null
           }
           
-          // Stop audio stream
           if (audioStreamRef.current) {
             audioStreamRef.current.getTracks().forEach(track => track.stop())
             audioStreamRef.current = null
@@ -228,14 +222,19 @@ export default function Interview({ user, onNavigate }) {
     setEmotionData((prev) => [...prev, emotion])
   }
 
-  // IMPROVED: Better AI analysis handling
+  // FIXED: Better handling of AI analysis with proper face detection
   const handleAIAnalysis = (analysisResult) => {
     console.log('🤖 AI Analysis received:', analysisResult)
     
     const currentTime = Date.now()
     
-    // IMPROVED: Only update if face is actually detected
-    if (analysisResult.faceDetected === true) {
+    // CRITICAL FIX: Check if face detection data exists
+    const hasFaceData = analysisResult.faceDetected === true || 
+                        (analysisResult.currentScores && 
+                         (analysisResult.currentScores.eyeContact > 0 || 
+                          analysisResult.currentScores.confidence > 0))
+    
+    if (hasFaceData) {
       setFaceDetected(true)
       setLastDetectionTime(currentTime)
       setUserPresent(true)
@@ -244,17 +243,15 @@ export default function Interview({ user, onNavigate }) {
         setAiAnalysisData(analysisResult.analysis.data)
       }
       
-      // IMPROVED: Only update scores when face is present
       if (analysisResult.currentScores) {
         const updatedScores = {
-          eyeContact: Math.min(100, analysisResult.currentScores.eyeContact || 0),
-          confidence: Math.min(100, analysisResult.currentScores.confidence || 0),
-          engagement: Math.min(100, analysisResult.currentScores.engagement || 0)
+          eyeContact: Math.min(100, Math.max(0, analysisResult.currentScores.eyeContact || 0)),
+          confidence: Math.min(100, Math.max(0, analysisResult.currentScores.confidence || 0)),
+          engagement: Math.min(100, Math.max(0, analysisResult.currentScores.engagement || 0))
         }
         
         setRealTimeScores(updatedScores)
         
-        // Store score with speech and presence data
         setScoreHistory(prev => [...prev, {
           ...updatedScores,
           timestamp: currentTime,
@@ -268,13 +265,11 @@ export default function Interview({ user, onNavigate }) {
         setAiRecommendations(analysisResult.recommendations)
       }
     } else {
-      // Face NOT detected
       setFaceDetected(false)
-      console.log('👁️ No face detected in frame')
+      console.log('👁️ No face detected in current frame')
     }
   }
 
-  // IMPROVED: Cleaner score decay and monitoring
   useEffect(() => {
     if (!recording) return
 
@@ -283,17 +278,14 @@ export default function Interview({ user, onNavigate }) {
       const timeSinceLastDetection = now - lastDetectionTime
       const timeSinceLastSpeech = now - lastSpeechTime
       
-      // Update silence duration
       const currentSilence = Math.floor(timeSinceLastSpeech / 1000)
       setSilenceDuration(currentSilence)
       
-      // Show "Please speak now" alert after 30 seconds of silence
       if (currentSilence > 30 && !isSpeaking && !showSpeakAlert) {
         setShowSpeakAlert(true)
         console.log('⚠️ User has been silent for 30+ seconds')
       }
       
-      // FIXED: Auto-skip question after 3 minutes (180 seconds) of silence
       if (currentSilence > 180 && !interviewCompleted) {
         console.log('⏭️ Auto-skipping question due to 3 minutes of silence')
         setShowSpeakAlert(false)
@@ -301,17 +293,15 @@ export default function Interview({ user, onNavigate }) {
         return
       }
       
-      // IMPROVED: Decay scores when face NOT detected (user away from camera)
       if (timeSinceLastDetection > 2000 && faceDetected) {
         setFaceDetected(false)
         setUserPresent(false)
         console.log('👤 User moved away from camera')
       }
       
-      // Apply decay when user is not present
       if (!faceDetected && userPresent === false) {
         setRealTimeScores(prev => {
-          const decayRate = 0.95 // 5% decrease per second
+          const decayRate = 0.95
           
           const newScores = {
             eyeContact: Math.max(0, Math.floor(prev.eyeContact * decayRate)),
@@ -319,7 +309,6 @@ export default function Interview({ user, onNavigate }) {
             engagement: Math.max(0, Math.floor(prev.engagement * decayRate))
           }
           
-          // Store decreased score in history
           setScoreHistory(prevHistory => [...prevHistory, {
             ...newScores,
             timestamp: now,
@@ -332,7 +321,6 @@ export default function Interview({ user, onNavigate }) {
         })
       }
       
-      // Decay engagement if not speaking for long periods
       if (currentSilence > 60 && faceDetected) {
         setRealTimeScores(prev => ({
           ...prev,
@@ -340,13 +328,12 @@ export default function Interview({ user, onNavigate }) {
         }))
       }
       
-    }, 1000) // Check every second
+    }, 1000)
     
     return () => clearInterval(monitorInterval)
   }, [recording, lastDetectionTime, lastSpeechTime, faceDetected, userPresent, isSpeaking, showSpeakAlert, interviewCompleted])
 
   const startNewAnalysis = () => {
-    // Reset analysis data
     setAiAnalysisData(null)
     setAiRecommendations([])
     setRealTimeScores({
@@ -357,7 +344,7 @@ export default function Interview({ user, onNavigate }) {
     setScoreHistory([])
     setLastDetectionTime(Date.now())
     setLastSpeechTime(Date.now())
-    setUserPresent(true)
+    setUserPresent(false)
     setFaceDetected(false)
     setIsSpeaking(false)
     setShowSpeakAlert(false)
@@ -366,22 +353,43 @@ export default function Interview({ user, onNavigate }) {
     setFeedback(null)
     setRecordingStopped(false)
     
-    // Generate new session ID
     const newSessionId = `interview_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
     setSessionId(newSessionId)
     
-    // Start recording immediately
     startRecording()
   }
 
   const continueExistingAnalysis = () => {
-    // Keep existing analysis data and continue
     setRecordingStopped(false)
     startRecording()
   }
 
+  // IMPROVED: Calculate accurate average scores
+  const calculateAverageScores = () => {
+    if (scoreHistory.length === 0) {
+      return { eyeContact: 0, confidence: 0, engagement: 0 }
+    }
+    
+    const validScores = scoreHistory.filter(score => score.faceDetected && score.userPresent)
+    
+    if (validScores.length === 0) {
+      return { eyeContact: 0, confidence: 0, engagement: 0 }
+    }
+    
+    const totals = validScores.reduce((acc, score) => ({
+      eyeContact: acc.eyeContact + score.eyeContact,
+      confidence: acc.confidence + score.confidence,
+      engagement: acc.engagement + score.engagement
+    }), { eyeContact: 0, confidence: 0, engagement: 0 })
+    
+    return {
+      eyeContact: Math.round(totals.eyeContact / validScores.length),
+      confidence: Math.round(totals.confidence / validScores.length),
+      engagement: Math.round(totals.engagement / validScores.length)
+    }
+  }
+
   const nextQuestion = async () => {
-    // Save current question answer/feedback if available
     if (feedback || scoreHistory.length > 0) {
       const questionScores = calculateAverageScores()
       setSessionAnswers(prev => [...prev, {
@@ -403,58 +411,33 @@ export default function Interview({ user, onNavigate }) {
       setCurrentQuestionIndex(currentQuestionIndex + 1)
       setFeedback(null)
       setRecordingStopped(false)
-      setScoreHistory([]) // Reset for new question
+      setScoreHistory([])
       setEmotionData([])
       setLastSpeechTime(Date.now())
       setSilenceDuration(0)
       setShowSpeakAlert(false)
     } else {
-      
+      // Calculate final average scores
+      const finalAverageScores = calculateAverageScores()
+      setAverageScores(finalAverageScores)
       setInterviewCompleted(true)
-      console.log('🎯 Interview completed! All questions answered.')
-    }
-  }
-
-  // IMPROVED: Calculate average scores from score history
-  const calculateAverageScores = () => {
-    if (scoreHistory.length === 0) {
-      return { eyeContact: 0, confidence: 0, engagement: 0 }
-    }
-    
-    // Only count scores when user was present and face detected
-    const validScores = scoreHistory.filter(score => score.faceDetected && score.userPresent)
-    
-    if (validScores.length === 0) {
-      return { eyeContact: 0, confidence: 0, engagement: 0 }
-    }
-    
-    const totals = validScores.reduce((acc, score) => ({
-      eyeContact: acc.eyeContact + score.eyeContact,
-      confidence: acc.confidence + score.confidence,
-      engagement: acc.engagement + score.engagement
-    }), { eyeContact: 0, confidence: 0, engagement: 0 })
-    
-    return {
-      eyeContact: Math.round(totals.eyeContact / validScores.length),
-      confidence: Math.round(totals.confidence / validScores.length),
-      engagement: Math.round(totals.engagement / validScores.length)
+      console.log('🎯 Interview completed! Final average scores:', finalAverageScores)
     }
   }
 
   const submitInterview = async () => {
     try {
       setSubmittingSession(true)
-      const duration = Math.floor((Date.now() - sessionStart) / 60000) // duration in minutes
+      const duration = Math.floor((Date.now() - sessionStart) / 60000)
       
-      const averageScores = calculateAverageScores()
-      const averageScore = Math.round((averageScores.eyeContact + averageScores.confidence + averageScores.engagement) / 3)
+      const finalAverageScores = averageScores || calculateAverageScores()
+      const averageScore = Math.round((finalAverageScores.eyeContact + finalAverageScores.confidence + finalAverageScores.engagement) / 3)
       
-      // Create comprehensive feedback
       const overallFeedback = {
         overall: `Completed ${questions.length} questions with ${averageScore}% average performance`,
-        eyeContact: `Average eye contact: ${averageScores.eyeContact}% (Current: ${realTimeScores.eyeContact}%)`,
-        confidence: `Average confidence level: ${averageScores.confidence}% (Current: ${realTimeScores.confidence}%)`,
-        engagement: `Average engagement score: ${averageScores.engagement}% (Current: ${realTimeScores.engagement}%)`,
+        eyeContact: `Average eye contact: ${finalAverageScores.eyeContact}%`,
+        confidence: `Average confidence level: ${finalAverageScores.confidence}%`,
+        engagement: `Average engagement score: ${finalAverageScores.engagement}%`,
         emotionAnalysis: emotionData.length > 0 ? `Detected ${emotionData.length} emotion changes` : 'Limited emotion data',
         speechAnalysis: `Total silence duration: ${Math.floor(silenceDuration / 60)} minutes`,
         sessionData: {
@@ -474,7 +457,7 @@ export default function Interview({ user, onNavigate }) {
         feedback: overallFeedback,
         answers: sessionAnswers,
         realTimeScores: realTimeScores,
-        averageScores: averageScores,
+        averageScores: finalAverageScores,
         scoreHistory: scoreHistory,
         emotionData: emotionData
       }
@@ -495,14 +478,12 @@ export default function Interview({ user, onNavigate }) {
         console.log('✅ Session saved successfully:', result)
         alert('Interview session saved successfully! Redirecting to dashboard...')
         
-        // Reset interview state
         setInterviewCompleted(false)
         setSessionAnswers([])
         setEmotionData([])
         setCurrentQuestionIndex(0)
         setScoreHistory([])
         
-        // Navigate to dashboard
         if (onNavigate) {
           onNavigate("dashboard")
         } else {
@@ -521,37 +502,35 @@ export default function Interview({ user, onNavigate }) {
     }
   }
 
-  // Show loading state
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
+      <div className="flex items-center justify-center h-screen bg-gradient-to-br from-slate-50 to-slate-100">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-lg">Loading {interviewType} questions...</p>
-          <p className="text-sm text-gray-600 mt-2">Preparing your interview session</p>
+          <div className="animate-spin rounded-full h-16 w-16 border-4 border-slate-200 border-t-slate-600 mx-auto mb-4"></div>
+          <p className="text-lg font-medium text-slate-700">Loading {interviewType} questions...</p>
+          <p className="text-sm text-slate-500 mt-2">Preparing your interview session</p>
         </div>
       </div>
     )
   }
 
-  // Show error state
   if (error) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <div className="text-center max-w-md">
+      <div className="flex items-center justify-center h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+        <div className="text-center max-w-md bg-white rounded-2xl shadow-lg p-8">
           <div className="text-red-500 text-6xl mb-4">⚠️</div>
-          <h2 className="text-xl font-semibold mb-2">Unable to Load Questions</h2>
-          <p className="text-gray-600 mb-4">{error}</p>
-          <div className="space-x-4">
+          <h2 className="text-2xl font-bold text-slate-800 mb-3">Unable to Load Questions</h2>
+          <p className="text-slate-600 mb-6">{error}</p>
+          <div className="flex gap-3 justify-center">
             <button 
               onClick={fetchQuestions}
-              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+              className="px-6 py-3 bg-slate-700 text-white rounded-lg hover:bg-slate-800 transition font-medium"
             >
               Try Again
             </button>
             <button 
               onClick={() => onNavigate("dashboard")}
-              className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+              className="px-6 py-3 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition font-medium"
             >
               Back to Dashboard
             </button>
@@ -561,17 +540,16 @@ export default function Interview({ user, onNavigate }) {
     )
   }
 
-  // Show empty state
   if (!questions.length) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <div className="text-center">
-          <div className="text-gray-400 text-6xl mb-4">📝</div>
-          <h2 className="text-xl font-semibold mb-2">No Questions Available</h2>
-          <p className="text-gray-600 mb-4">We couldn't find any {interviewType} questions.</p>
+      <div className="flex items-center justify-center h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+        <div className="text-center bg-white rounded-2xl shadow-lg p-8">
+          <div className="text-slate-400 text-6xl mb-4">📝</div>
+          <h2 className="text-2xl font-bold text-slate-800 mb-3">No Questions Available</h2>
+          <p className="text-slate-600 mb-6">We couldn't find any {interviewType} questions.</p>
           <button 
             onClick={() => onNavigate("dashboard")}
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            className="px-6 py-3 bg-slate-700 text-white rounded-lg hover:bg-slate-800 transition font-medium"
           >
             Back to Dashboard
           </button>
@@ -581,207 +559,222 @@ export default function Interview({ user, onNavigate }) {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
-      <div className="grid lg:grid-cols-4 gap-6">
-        {/* Webcam and Question */}
-        <div className="lg:col-span-2 space-y-6">
-          <QuestionDisplay question={questions[currentQuestionIndex]} />
-          <WebcamFeed 
-            recording={recording} 
-            onEmotionDetected={handleAIAnalysis} 
-            sessionId={sessionId}
-          />
-          
-          {/* IMPROVED: Better status indicators */}
-          <div className="bg-gray-100 rounded-lg p-4 space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="font-medium">Face Detection:</span>
-              <span className={`px-3 py-1 rounded-full ${faceDetected ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                {faceDetected ? '✅ Detected' : '❌ Not Detected'}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="font-medium">Speech Activity:</span>
-              <span className={`px-3 py-1 rounded-full ${isSpeaking ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-700'}`}>
-                {isSpeaking ? '🗣️ Speaking' : '🔇 Silent'}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="font-medium">Silence Duration:</span>
-              <span className="px-3 py-1 rounded-full bg-yellow-100 text-yellow-700">
-                {silenceDuration}s / 180s
-              </span>
-            </div>
-          </div>
-          
-          {/* Speech Alert */}
-          {showSpeakAlert && recording && (
-            <div className="bg-yellow-100 border border-yellow-400 rounded-lg p-4 mb-4 animate-pulse">
-              <div className="flex items-center">
-                <div className="text-yellow-600 text-xl mr-3">🗣️</div>
-                <div>
-                  <h4 className="font-semibold text-yellow-800">Please Speak Now</h4>
-                  <p className="text-yellow-700 text-sm">
-                    You've been silent for {silenceDuration} seconds. 
-                    {silenceDuration > 150 ? ` Question will auto-skip in ${180 - silenceDuration} seconds.` : ' Please start speaking to continue.'}
-                  </p>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 py-8">
+      <div className="max-w-7xl mx-auto px-4">
+        <div className="grid lg:grid-cols-4 gap-6">
+          {/* Main Interview Area */}
+          <div className="lg:col-span-2 space-y-6">
+            <QuestionDisplay question={questions[currentQuestionIndex]} />
+            <WebcamFeed 
+              recording={recording} 
+              onEmotionDetected={handleAIAnalysis} 
+              sessionId={sessionId}
+            />
+            
+            {/* Professional Status Panel */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+              <h3 className="text-sm font-semibold text-slate-700 mb-4 uppercase tracking-wide">Session Status</h3>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-slate-600">Face Detection</span>
+                  <span className={`px-3 py-1.5 rounded-full text-xs font-semibold ${
+                    faceDetected 
+                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                      : 'bg-slate-100 text-slate-600 border border-slate-200'
+                  }`}>
+                    {faceDetected ? '✓ Detected' : '○ Not Detected'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-slate-600">Speech Activity</span>
+                  <span className={`px-3 py-1.5 rounded-full text-xs font-semibold ${
+                    isSpeaking 
+                      ? 'bg-blue-50 text-blue-700 border border-blue-200' 
+                      : 'bg-slate-100 text-slate-600 border border-slate-200'
+                  }`}>
+                    {isSpeaking ? '● Speaking' : '○ Silent'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-slate-600">Silence Duration</span>
+                  <span className="px-3 py-1.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                    {silenceDuration}s / 180s
+                  </span>
                 </div>
               </div>
             </div>
-          )}
-
-          <div className="flex gap-4">
-            {!recording && !recordingStopped && !interviewCompleted && (
-              <button
-                onClick={startRecording}
-                className="flex-1 py-3 rounded-lg text-white font-semibold transition"
-                style={{
-                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                  boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = 'translateY(-1px)'
-                  e.currentTarget.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.4)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = 'translateY(0)'
-                  e.currentTarget.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.3)'
-                }}
-              >
-                Start Recording
-              </button>
-            )}
             
-            {recording && !interviewCompleted && (
-              <button
-                onClick={stopRecording}
-                className="flex-1 py-3 rounded-lg bg-red-500 text-white font-semibold hover:bg-red-700 transition"
-              >
-                Stop Recording
-              </button>
-            )}
-            
-            {!recording && recordingStopped && !interviewCompleted && (
-              <>
-                <button
-                  onClick={startNewAnalysis}
-                  className="flex-1 py-3 rounded-lg bg-green-500 text-white font-semibold hover:bg-green-600 transition"
-                >
-                  🔄 Start New Analysis
-                </button>
-                <button
-                  onClick={continueExistingAnalysis}
-                  className="flex-1 py-3 rounded-lg bg-blue-500 text-white font-semibold hover:bg-blue-600 transition"
-                >
-                  ▶️ Continue Analysis
-                </button>
-              </>
-            )}
-            
-            {!interviewCompleted && (
-              <button
-                onClick={nextQuestion}
-                disabled={recording}
-                className="flex-1 py-3 rounded-lg bg-gray-600 text-white font-semibold hover:bg-gray-700 transition disabled:opacity-50"
-              >
-                {currentQuestionIndex === questions.length - 1 ? 'Complete Interview' : 'Next Question'} ({currentQuestionIndex + 1}/{questions.length})
-              </button>
-            )}
-
-            {/* Interview Completed State */}
-            {interviewCompleted && (
-              <div className="w-full">
-                <div className="bg-green-50 border border-green-200 rounded-lg p-6 mb-4">
-                  <div className="flex items-center mb-3">
-                    <div className="text-green-600 text-2xl mr-3">🎉</div>
-                    <div>
-                      <h3 className="text-lg font-semibold text-green-800">Interview Completed!</h3>
-                      <p className="text-green-700 text-sm">You have successfully answered all {questions.length} questions.</p>
-                    </div>
+            {/* Speak Alert */}
+            {showSpeakAlert && recording && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 shadow-sm">
+                <div className="flex items-start">
+                  <div className="flex-shrink-0 text-amber-500 text-xl mr-3 mt-0.5">⚠️</div>
+                  <div>
+                    <h4 className="font-semibold text-amber-900 mb-1">Please Start Speaking</h4>
+                    <p className="text-sm text-amber-800">
+                      You've been silent for {silenceDuration} seconds.
+                      {silenceDuration > 150 && ` Question will auto-skip in ${180 - silenceDuration} seconds.`}
+                    </p>
                   </div>
-                  
-                  <div className="grid grid-cols-3 gap-4 mb-4 text-sm">
-                    <div className="text-center p-3 bg-white rounded border">
-                      <div className="font-semibold text-blue-600">{realTimeScores.eyeContact}%</div>
-                      <div className="text-gray-600">Eye Contact</div>
-                      <div className="text-xs text-gray-400 mt-1">
-                        {faceDetected ? '🟢 Detected' : '🔴 Not Detected'}
-                      </div>
-                    </div>
-                    <div className="text-center p-3 bg-white rounded border">
-                      <div className="font-semibold text-green-600">{realTimeScores.confidence}%</div>
-                      <div className="text-gray-600">Confidence</div>
-                      <div className="text-xs text-gray-400 mt-1">
-                        {faceDetected ? '🟢 Detected' : '🔴 Not Detected'}
-                      </div>
-                    </div>
-                    <div className="text-center p-3 bg-white rounded border">
-                      <div className="font-semibold text-purple-600">{realTimeScores.engagement}%</div>
-                      <div className="text-gray-600">Engagement</div>
-                      <div className="text-xs text-gray-400 mt-1">
-                        {isSpeaking ? '🗣️ Speaking' : '🔇 Silent'}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="flex gap-3">
-                  <button
-                    onClick={submitInterview}
-                    disabled={submittingSession}
-                    className="flex-1 py-3 rounded-lg bg-green-600 text-white font-semibold hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {submittingSession ? (
-                      <>
-                        <span className="inline-block animate-spin mr-2">⏳</span>
-                        Saving Session...
-                      </>
-                    ) : (
-                      <>
-                        💾 Submit Interview & Go to Dashboard
-                      </>
-                    )}
-                  </button>
-                  
-                  <button
-                    onClick={() => {
-                      setInterviewCompleted(false)
-                      setCurrentQuestionIndex(0)
-                      setSessionAnswers([])
-                      setFeedback(null)
-                      setRecordingStopped(false)
-                      setScoreHistory([])
-                      setLastDetectionTime(Date.now())
-                      setLastSpeechTime(Date.now())
-                      setUserPresent(true)
-                      setFaceDetected(false)
-                      setIsSpeaking(false)
-                      setShowSpeakAlert(false)
-                      setSilenceDuration(0)
-                    }}
-                    disabled={submittingSession}
-                    className="px-6 py-3 rounded-lg bg-gray-500 text-white font-semibold hover:bg-gray-600 transition disabled:opacity-50"
-                  >
-                    🔄 Restart
-                  </button>
                 </div>
               </div>
             )}
+
+            {/* Control Buttons */}
+            <div className="flex gap-3">
+              {!recording && !recordingStopped && !interviewCompleted && (
+                <button
+                  onClick={startRecording}
+                  className="flex-1 py-3.5 rounded-xl bg-slate-700 text-white font-semibold hover:bg-slate-800 transition-all shadow-sm hover:shadow-md"
+                >
+                  Start Recording
+                </button>
+              )}
+              
+              {recording && !interviewCompleted && (
+                <button
+                  onClick={stopRecording}
+                  className="flex-1 py-3.5 rounded-xl bg-red-600 text-white font-semibold hover:bg-red-700 transition-all shadow-sm hover:shadow-md"
+                >
+                  Stop Recording
+                </button>
+              )}
+              
+              {!recording && recordingStopped && !interviewCompleted && (
+                <>
+                  <button
+                    onClick={startNewAnalysis}
+                    className="flex-1 py-3.5 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition-all shadow-sm hover:shadow-md"
+                  >
+                    🔄 Start New Analysis
+                  </button>
+                  <button
+                    onClick={continueExistingAnalysis}
+                    className="flex-1 py-3.5 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-all shadow-sm hover:shadow-md"
+                  >
+                    ▶ Continue Analysis
+                  </button>
+                </>
+              )}
+              
+              {!interviewCompleted && (
+                <button
+                  onClick={nextQuestion}
+                  disabled={recording}
+                  className="flex-1 py-3.5 rounded-xl bg-slate-600 text-white font-semibold hover:bg-slate-700 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {currentQuestionIndex === questions.length - 1 ? 'Complete Interview' : 'Next Question'} 
+                  <span className="ml-2 text-sm opacity-80">({currentQuestionIndex + 1}/{questions.length})</span>
+                </button>
+              )}
+
+              {/* Interview Completed State */}
+              {interviewCompleted && (
+                <div className="w-full">
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-6 mb-4 shadow-sm">
+                    <div className="flex items-start mb-4">
+                      <div className="flex-shrink-0 text-emerald-600 text-3xl mr-4">✓</div>
+                      <div>
+                        <h3 className="text-xl font-bold text-emerald-900 mb-1">Interview Completed!</h3>
+                        <p className="text-emerald-700">You have successfully answered all {questions.length} questions.</p>
+                      </div>
+                    </div>
+                    
+                    {/* Show Final Average Scores */}
+                    <div className="bg-white rounded-lg p-4 mb-4 border border-emerald-100">
+                      <h4 className="text-sm font-semibold text-slate-700 mb-3 uppercase tracking-wide">Final Average Performance</h4>
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="text-center">
+                          <div className="text-3xl font-bold text-blue-600 mb-1">
+                            {averageScores?.eyeContact || 0}%
+                          </div>
+                          <div className="text-xs text-slate-600 font-medium">Eye Contact</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-3xl font-bold text-emerald-600 mb-1">
+                            {averageScores?.confidence || 0}%
+                          </div>
+                          <div className="text-xs text-slate-600 font-medium">Confidence</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-3xl font-bold text-purple-600 mb-1">
+                            {averageScores?.engagement || 0}%
+                          </div>
+                          <div className="text-xs text-slate-600 font-medium">Engagement</div>
+                        </div>
+                      </div>
+                      <div className="mt-4 pt-4 border-t border-slate-200">
+                        <div className="text-center">
+                          <div className="text-2xl font-bold text-slate-800 mb-1">
+                            {Math.round((
+                              (averageScores?.eyeContact || 0) + 
+                              (averageScores?.confidence || 0) + 
+                              (averageScores?.engagement || 0)
+                            ) / 3)}%
+                          </div>
+                          <div className="text-xs text-slate-600 font-medium uppercase tracking-wide">Overall Score</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex gap-3">
+                    <button
+                      onClick={submitInterview}
+                      disabled={submittingSession}
+                      className="flex-1 py-3.5 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {submittingSession ? (
+                        <>
+                          <span className="inline-block animate-spin mr-2">⏳</span>
+                          Saving Session...
+                        </>
+                      ) : (
+                        '💾 Submit & Go to Dashboard'
+                      )}
+                    </button>
+                    
+                    <button
+                      onClick={() => {
+                        setInterviewCompleted(false)
+                        setCurrentQuestionIndex(0)
+                        setSessionAnswers([])
+                        setFeedback(null)
+                        setRecordingStopped(false)
+                        setScoreHistory([])
+                        setAverageScores(null)
+                        setLastDetectionTime(Date.now())
+                        setLastSpeechTime(Date.now())
+                        setUserPresent(false)
+                        setFaceDetected(false)
+                        setIsSpeaking(false)
+                        setShowSpeakAlert(false)
+                        setSilenceDuration(0)
+                      }}
+                      disabled={submittingSession}
+                      className="px-6 py-3.5 rounded-xl bg-slate-200 text-slate-700 font-semibold hover:bg-slate-300 transition-all shadow-sm disabled:opacity-50"
+                    >
+                      🔄 Restart
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
 
-        {/* AI Feedback Panel */}
-        <div className="lg:col-span-1">
-          <AIFeedbackPanel 
-            analysisData={aiAnalysisData}
-            recommendations={aiRecommendations}
-            realTimeScores={realTimeScores}
-          />
-        </div>
+          {/* AI Feedback Panel */}
+          <div className="lg:col-span-1">
+            <AIFeedbackPanel 
+              analysisData={aiAnalysisData}
+              recommendations={aiRecommendations}
+              realTimeScores={realTimeScores}
+            />
+          </div>
 
-        {/* Traditional Feedback Panel */}
-        <div className="lg:col-span-1">
-          <FeedbackPanel feedback={feedback} emotionData={emotionData} />
+          {/* Traditional Feedback Panel */}
+          <div className="lg:col-span-1">
+            <FeedbackPanel feedback={feedback} emotionData={emotionData} />
+          </div>
         </div>
       </div>
     </div>
