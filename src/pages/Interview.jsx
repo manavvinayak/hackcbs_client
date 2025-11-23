@@ -182,7 +182,9 @@ export default function Interview({ user, onNavigate }) {
 
   // Effect to handle score decay when user moves away
   useEffect(() => {
-    const interval = setInterval(() => {
+    let decayInterval = null
+    
+    const checkUserPresence = () => {
       const now = Date.now()
       const timeSinceLastDetection = now - lastDetectionTime
       
@@ -190,50 +192,46 @@ export default function Interview({ user, onNavigate }) {
       if (timeSinceLastDetection > 2000 && userPresent) {
         setUserPresent(false)
         
-        // Gradually decrease scores every second when user is away
-        const decayInterval = setInterval(() => {
-          const currentTime = Date.now()
-          const timeAway = currentTime - lastDetectionTime
-          
-          if (timeAway > 2000) { // Only start decay after 2 seconds
-            setRealTimeScores(prev => {
-              const decayRate = 0.95 // Decrease by 5% each second
-              const newScores = {
-                eyeContact: Math.max(0, Math.floor(prev.eyeContact * decayRate)),
-                confidence: Math.max(0, Math.floor(prev.confidence * decayRate)),
-                engagement: Math.max(0, Math.floor(prev.engagement * decayRate))
-              }
-              
-              // Store the decreased score in history
-              setScoreHistory(prevHistory => [...prevHistory, {
-                ...newScores,
-                timestamp: currentTime,
-                userPresent: false
-              }])
-              
-              return newScores
-            })
-          }
+        // Start gradual decay
+        decayInterval = setInterval(() => {
+          setRealTimeScores(prev => {
+            const decayRate = 0.95 // Decrease by 5% each second
+            const newScores = {
+              eyeContact: Math.max(0, Math.floor(prev.eyeContact * decayRate)),
+              confidence: Math.max(0, Math.floor(prev.confidence * decayRate)),
+              engagement: Math.max(0, Math.floor(prev.engagement * decayRate))
+            }
+            
+            // Store the decreased score in history
+            setScoreHistory(prevHistory => [...prevHistory, {
+              ...newScores,
+              timestamp: Date.now(),
+              userPresent: false
+            }])
+            
+            return newScores
+          })
         }, 1000) // Decay every second
-        
-        // Clear decay interval when user returns
-        const checkReturn = setInterval(() => {
-          const timeSinceLastDetection = Date.now() - lastDetectionTime
-          if (timeSinceLastDetection <= 2000) {
-            clearInterval(decayInterval)
-            clearInterval(checkReturn)
-          }
-        }, 500)
-        
-        // Stop decay after 30 seconds to prevent endless decay
-        setTimeout(() => {
-          clearInterval(decayInterval)
-          clearInterval(checkReturn)
-        }, 30000)
       }
-    }, 1000)
+      
+      // If user returns (detection within last 2 seconds), stop decay
+      if (timeSinceLastDetection <= 2000 && !userPresent) {
+        setUserPresent(true)
+        if (decayInterval) {
+          clearInterval(decayInterval)
+          decayInterval = null
+        }
+      }
+    }
     
-    return () => clearInterval(interval)
+    const interval = setInterval(checkUserPresence, 1000)
+    
+    return () => {
+      clearInterval(interval)
+      if (decayInterval) {
+        clearInterval(decayInterval)
+      }
+    }
   }, [lastDetectionTime, userPresent])
 
   const startNewAnalysis = () => {
