@@ -25,6 +25,9 @@ export default function Interview({ user, onNavigate }) {
     confidence: 0,
     engagement: 0
   })
+  const [scoreHistory, setScoreHistory] = useState([])
+  const [lastDetectionTime, setLastDetectionTime] = useState(Date.now())
+  const [userPresent, setUserPresent] = useState(true)
   const [interviewCompleted, setInterviewCompleted] = useState(false)
   const [sessionAnswers, setSessionAnswers] = useState([])
   const [submittingSession, setSubmittingSession] = useState(false)
@@ -153,18 +156,85 @@ export default function Interview({ user, onNavigate }) {
   const handleAIAnalysis = (analysisResult) => {
     console.log('🤖 AI Analysis received:', analysisResult)
     
+    const currentTime = Date.now()
+    setLastDetectionTime(currentTime)
+    setUserPresent(true)
+    
     if (analysisResult.analysis) {
       setAiAnalysisData(analysisResult.analysis.data)
     }
     
     if (analysisResult.currentScores) {
       setRealTimeScores(analysisResult.currentScores)
+      
+      // Store score with timestamp for average calculation
+      setScoreHistory(prev => [...prev, {
+        ...analysisResult.currentScores,
+        timestamp: currentTime,
+        userPresent: true
+      }])
     }
     
     if (analysisResult.recommendations) {
       setAiRecommendations(analysisResult.recommendations)
     }
   }
+
+  // Effect to handle score decay when user moves away
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now()
+      const timeSinceLastDetection = now - lastDetectionTime
+      
+      // If no detection for more than 2 seconds, start decreasing scores
+      if (timeSinceLastDetection > 2000 && userPresent) {
+        setUserPresent(false)
+        
+        // Gradually decrease scores every second when user is away
+        const decayInterval = setInterval(() => {
+          const currentTime = Date.now()
+          const timeAway = currentTime - lastDetectionTime
+          
+          if (timeAway > 2000) { // Only start decay after 2 seconds
+            setRealTimeScores(prev => {
+              const decayRate = 0.95 // Decrease by 5% each second
+              const newScores = {
+                eyeContact: Math.max(0, Math.floor(prev.eyeContact * decayRate)),
+                confidence: Math.max(0, Math.floor(prev.confidence * decayRate)),
+                engagement: Math.max(0, Math.floor(prev.engagement * decayRate))
+              }
+              
+              // Store the decreased score in history
+              setScoreHistory(prevHistory => [...prevHistory, {
+                ...newScores,
+                timestamp: currentTime,
+                userPresent: false
+              }])
+              
+              return newScores
+            })
+          }
+        }, 1000) // Decay every second
+        
+        // Clear decay interval when user returns
+        const checkReturn = setInterval(() => {
+          const timeSinceLastDetection = Date.now() - lastDetectionTime
+          if (timeSinceLastDetection <= 2000) {
+            clearInterval(decayInterval)
+            clearInterval(checkReturn)
+          }
+        }, 500)
+        
+        // Stop decay after 30 seconds to prevent endless decay
+        setTimeout(() => {
+          clearInterval(decayInterval)
+          clearInterval(checkReturn)
+        }, 30000)
+      }
+    }, 1000)
+    
+    return () => clearInterval(interval)
+  }, [lastDetectionTime, userPresent])
 
   const startNewAnalysis = () => {
     // Reset analysis data
@@ -175,6 +245,9 @@ export default function Interview({ user, onNavigate }) {
       confidence: 0,
       engagement: 0
     })
+    setScoreHistory([])
+    setLastDetectionTime(Date.now())
+    setUserPresent(true)
     setEmotionData([])
     setFeedback(null)
     setRecordingStopped(false)
@@ -225,20 +298,41 @@ export default function Interview({ user, onNavigate }) {
       setSubmittingSession(true)
       const duration = Math.floor((Date.now() - sessionStart) / 60000) // duration in minutes
       
-      // Calculate average scores from real-time analysis
-      const averageScore = Math.round((realTimeScores.eyeContact + realTimeScores.confidence + realTimeScores.engagement) / 3)
+      // Calculate average scores from score history for more accurate results
+      const calculateAverageScores = () => {
+        if (scoreHistory.length === 0) {
+          return { eyeContact: 0, confidence: 0, engagement: 0 }
+        }
+        
+        const totals = scoreHistory.reduce((acc, score) => ({
+          eyeContact: acc.eyeContact + score.eyeContact,
+          confidence: acc.confidence + score.confidence,
+          engagement: acc.engagement + score.engagement
+        }), { eyeContact: 0, confidence: 0, engagement: 0 })
+        
+        return {
+          eyeContact: Math.round(totals.eyeContact / scoreHistory.length),
+          confidence: Math.round(totals.confidence / scoreHistory.length),
+          engagement: Math.round(totals.engagement / scoreHistory.length)
+        }
+      }
       
-      // Create comprehensive feedback
+      const averageScores = calculateAverageScores()
+      const averageScore = Math.round((averageScores.eyeContact + averageScores.confidence + averageScores.engagement) / 3)
+      
+      // Create comprehensive feedback with both real-time and average scores
       const overallFeedback = {
         overall: `Completed ${questions.length} questions with ${averageScore}% average performance`,
-        eyeContact: `Average eye contact: ${realTimeScores.eyeContact}%`,
-        confidence: `Confidence level: ${realTimeScores.confidence}%`,
-        engagement: `Engagement score: ${realTimeScores.engagement}%`,
+        eyeContact: `Average eye contact: ${averageScores.eyeContact}% (Current: ${realTimeScores.eyeContact}%)`,
+        confidence: `Average confidence level: ${averageScores.confidence}% (Current: ${realTimeScores.confidence}%)`,
+        engagement: `Average engagement score: ${averageScores.engagement}% (Current: ${realTimeScores.engagement}%)`,
         emotionAnalysis: emotionData.length > 0 ? `Detected ${emotionData.length} emotion changes` : 'Limited emotion data',
         sessionData: {
           questionsAnswered: sessionAnswers.length,
           totalQuestions: questions.length,
-          interviewType: interviewType
+          interviewType: interviewType,
+          totalDataPoints: scoreHistory.length,
+          sessionDuration: duration
         }
       }
 
@@ -248,7 +342,9 @@ export default function Interview({ user, onNavigate }) {
         score: Math.max(averageScore, 60), // Ensure minimum score of 60
         feedback: overallFeedback,
         answers: sessionAnswers,
-        realTimeScores: realTimeScores,
+        realTimeScores: realTimeScores, // Current scores
+        averageScores: averageScores, // Average scores for final result
+        scoreHistory: scoreHistory, // Complete score history
         emotionData: emotionData
       }
 
@@ -273,6 +369,7 @@ export default function Interview({ user, onNavigate }) {
         setSessionAnswers([])
         setEmotionData([])
         setCurrentQuestionIndex(0)
+        setScoreHistory([])
         
         // Navigate to dashboard
         if (onNavigate) {
@@ -438,14 +535,23 @@ export default function Interview({ user, onNavigate }) {
                     <div className="text-center p-3 bg-white rounded border">
                       <div className="font-semibold text-blue-600">{realTimeScores.eyeContact}%</div>
                       <div className="text-gray-600">Eye Contact</div>
+                      <div className="text-xs text-gray-400 mt-1">
+                        {userPresent ? '🟢 Live' : '🔴 Away'}
+                      </div>
                     </div>
                     <div className="text-center p-3 bg-white rounded border">
                       <div className="font-semibold text-green-600">{realTimeScores.confidence}%</div>
                       <div className="text-gray-600">Confidence</div>
+                      <div className="text-xs text-gray-400 mt-1">
+                        {userPresent ? '🟢 Live' : '🔴 Away'}
+                      </div>
                     </div>
                     <div className="text-center p-3 bg-white rounded border">
                       <div className="font-semibold text-purple-600">{realTimeScores.engagement}%</div>
                       <div className="text-gray-600">Engagement</div>
+                      <div className="text-xs text-gray-400 mt-1">
+                        {userPresent ? '🟢 Live' : '🔴 Away'}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -475,6 +581,9 @@ export default function Interview({ user, onNavigate }) {
                       setSessionAnswers([])
                       setFeedback(null)
                       setRecordingStopped(false)
+                      setScoreHistory([])
+                      setLastDetectionTime(Date.now())
+                      setUserPresent(true)
                     }}
                     disabled={submittingSession}
                     className="px-6 py-3 rounded-lg bg-gray-500 text-white font-semibold hover:bg-gray-600 transition disabled:opacity-50"
