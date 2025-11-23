@@ -28,6 +28,9 @@ export default function Interview({ user, onNavigate }) {
   const [scoreHistory, setScoreHistory] = useState([])
   const [lastDetectionTime, setLastDetectionTime] = useState(Date.now())
   const [userPresent, setUserPresent] = useState(true)
+  const [lastSpeechTime, setLastSpeechTime] = useState(Date.now())
+  const [showSpeakAlert, setShowSpeakAlert] = useState(false)
+  const [silenceDuration, setSilenceDuration] = useState(0)
   const [interviewCompleted, setInterviewCompleted] = useState(false)
   const [sessionAnswers, setSessionAnswers] = useState([])
   const [submittingSession, setSubmittingSession] = useState(false)
@@ -160,18 +163,33 @@ export default function Interview({ user, onNavigate }) {
     setLastDetectionTime(currentTime)
     setUserPresent(true)
     
+    // Check for speech activity
+    if (analysisResult.speechDetected || (analysisResult.currentScores && analysisResult.currentScores.engagement > 30)) {
+      setLastSpeechTime(currentTime)
+      setSilenceDuration(0)
+      setShowSpeakAlert(false)
+    }
+    
     if (analysisResult.analysis) {
       setAiAnalysisData(analysisResult.analysis.data)
     }
     
     if (analysisResult.currentScores) {
-      setRealTimeScores(analysisResult.currentScores)
+      // Ensure eye contact is properly tracked
+      const updatedScores = {
+        eyeContact: analysisResult.currentScores.eyeContact || 0,
+        confidence: analysisResult.currentScores.confidence || 0,
+        engagement: analysisResult.currentScores.engagement || 0
+      }
+      
+      setRealTimeScores(updatedScores)
       
       // Store score with timestamp for average calculation
       setScoreHistory(prev => [...prev, {
-        ...analysisResult.currentScores,
+        ...updatedScores,
         timestamp: currentTime,
-        userPresent: true
+        userPresent: true,
+        speechActive: currentTime - lastSpeechTime < 30000 // speech within last 30 seconds
       }])
     }
     
@@ -180,33 +198,55 @@ export default function Interview({ user, onNavigate }) {
     }
   }
 
-  // Effect to handle score decay when user moves away
+  // Effect to handle score decay and speech monitoring
   useEffect(() => {
     let decayInterval = null
     
-    const checkUserPresence = () => {
+    const checkUserPresenceAndSpeech = () => {
       const now = Date.now()
       const timeSinceLastDetection = now - lastDetectionTime
+      const timeSinceLastSpeech = now - lastSpeechTime
       
-      // If no detection for more than 2 seconds, start decreasing scores
-      if (timeSinceLastDetection > 2000 && userPresent) {
+      // Update silence duration
+      setSilenceDuration(Math.floor(timeSinceLastSpeech / 1000))
+      
+      // Show "Please speak now" alert after 30 seconds of silence
+      if (timeSinceLastSpeech > 30000 && recording && !showSpeakAlert) {
+        setShowSpeakAlert(true)
+        console.log('⚠️ User has been silent for 30+ seconds')
+      }
+      
+      // Auto-skip question after 5 minutes (300 seconds) of silence
+      if (timeSinceLastSpeech > 300000 && recording && !interviewCompleted) {
+        console.log('⏭️ Auto-skipping question due to prolonged silence')
+        setShowSpeakAlert(false)
+        nextQuestion()
+        return
+      }
+      
+      // Handle user presence (visual detection)
+      if (timeSinceLastDetection > 3000 && userPresent) {
         setUserPresent(false)
+        console.log('👁️ User moved away from camera')
         
-        // Start gradual decay
+        // Start gradual decay for absence
         decayInterval = setInterval(() => {
           setRealTimeScores(prev => {
-            const decayRate = 0.95 // Decrease by 5% each second
+            const visualDecayRate = 0.92 // Decrease by 8% each second for visual absence
+            const speechDecayRate = timeSinceLastSpeech > 60000 ? 0.90 : 0.98 // Faster decay if also not speaking
+            
             const newScores = {
-              eyeContact: Math.max(0, Math.floor(prev.eyeContact * decayRate)),
-              confidence: Math.max(0, Math.floor(prev.confidence * decayRate)),
-              engagement: Math.max(0, Math.floor(prev.engagement * decayRate))
+              eyeContact: Math.max(0, Math.floor(prev.eyeContact * visualDecayRate)),
+              confidence: Math.max(0, Math.floor(prev.confidence * (timeSinceLastSpeech > 60000 ? speechDecayRate : 0.96))),
+              engagement: Math.max(0, Math.floor(prev.engagement * (timeSinceLastSpeech > 30000 ? speechDecayRate : 0.98)))
             }
             
             // Store the decreased score in history
             setScoreHistory(prevHistory => [...prevHistory, {
               ...newScores,
               timestamp: Date.now(),
-              userPresent: false
+              userPresent: false,
+              speechActive: false
             }])
             
             return newScores
@@ -214,17 +254,27 @@ export default function Interview({ user, onNavigate }) {
         }, 1000) // Decay every second
       }
       
-      // If user returns (detection within last 2 seconds), stop decay
-      if (timeSinceLastDetection <= 2000 && !userPresent) {
+      // If user returns (detection within last 3 seconds), stop decay
+      if (timeSinceLastDetection <= 3000 && !userPresent) {
         setUserPresent(true)
+        console.log('👁️ User returned to camera')
         if (decayInterval) {
           clearInterval(decayInterval)
           decayInterval = null
         }
       }
+      
+      // Reduce engagement if no speech for extended periods
+      if (timeSinceLastSpeech > 60000 && recording && userPresent) {
+        setRealTimeScores(prev => ({
+          ...prev,
+          engagement: Math.max(0, Math.floor(prev.engagement * 0.99)),
+          confidence: Math.max(0, Math.floor(prev.confidence * 0.995))
+        }))
+      }
     }
     
-    const interval = setInterval(checkUserPresence, 1000)
+    const interval = setInterval(checkUserPresenceAndSpeech, 1000)
     
     return () => {
       clearInterval(interval)
@@ -232,7 +282,7 @@ export default function Interview({ user, onNavigate }) {
         clearInterval(decayInterval)
       }
     }
-  }, [lastDetectionTime, userPresent])
+  }, [lastDetectionTime, lastSpeechTime, userPresent, recording, showSpeakAlert, interviewCompleted])
 
   const startNewAnalysis = () => {
     // Reset analysis data
@@ -245,7 +295,10 @@ export default function Interview({ user, onNavigate }) {
     })
     setScoreHistory([])
     setLastDetectionTime(Date.now())
+    setLastSpeechTime(Date.now())
     setUserPresent(true)
+    setShowSpeakAlert(false)
+    setSilenceDuration(0)
     setEmotionData([])
     setFeedback(null)
     setRecordingStopped(false)
@@ -458,6 +511,22 @@ export default function Interview({ user, onNavigate }) {
             onEmotionDetected={handleAIAnalysis} 
             sessionId={sessionId}
           />
+          
+          {/* Speech Alert */}
+          {showSpeakAlert && recording && (
+            <div className="bg-yellow-100 border border-yellow-400 rounded-lg p-4 mb-4 animate-pulse">
+              <div className="flex items-center">
+                <div className="text-yellow-600 text-xl mr-3">🗣️</div>
+                <div>
+                  <h4 className="font-semibold text-yellow-800">Please Speak Now</h4>
+                  <p className="text-yellow-700 text-sm">
+                    You've been silent for {silenceDuration} seconds. 
+                    {silenceDuration > 240 ? ` Question will auto-skip in ${300 - silenceDuration} seconds.` : ' Please start speaking to continue.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="flex gap-4">
             {!recording && !recordingStopped && !interviewCompleted && (
@@ -581,7 +650,10 @@ export default function Interview({ user, onNavigate }) {
                       setRecordingStopped(false)
                       setScoreHistory([])
                       setLastDetectionTime(Date.now())
+                      setLastSpeechTime(Date.now())
                       setUserPresent(true)
+                      setShowSpeakAlert(false)
+                      setSilenceDuration(0)
                     }}
                     disabled={submittingSession}
                     className="px-6 py-3 rounded-lg bg-gray-500 text-white font-semibold hover:bg-gray-600 transition disabled:opacity-50"
