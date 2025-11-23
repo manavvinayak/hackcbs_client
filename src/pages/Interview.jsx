@@ -368,7 +368,19 @@ export default function Interview({ user, onNavigate }) {
             {!recording && !recordingStopped && !interviewCompleted && (
               <button
                 onClick={startRecording}
-                className="flex-1 py-3 rounded-lg bg-primary text-white font-semibold hover:bg-blue-600 transition"
+                className="flex-1 py-3 rounded-lg text-white font-semibold transition"
+                style={{
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-1px)'
+                  e.currentTarget.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.4)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)'
+                  e.currentTarget.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.3)'
+                }}
               >
                 Start Recording
               </button>
