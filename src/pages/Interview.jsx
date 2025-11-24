@@ -555,7 +555,10 @@ export default function Interview({ user, onNavigate }) {
   }
 
   const getOverallScore = () => {
-    return Math.round((realTimeScores.eyeContact + realTimeScores.confidence + realTimeScores.engagement) / 3)
+    const eyeContact = Math.round(realTimeScores.eyeContact || 0)
+    const confidence = Math.round(realTimeScores.confidence || 0)
+    const engagement = Math.round(realTimeScores.engagement || 0)
+    return Math.round((eyeContact + confidence + engagement) / 3)
   }
 
   return (
@@ -825,12 +828,12 @@ export default function Interview({ user, onNavigate }) {
                       stroke="#14b8a6"
                       strokeWidth="8"
                       fill="none"
-                      strokeDasharray={`${(getOverallScore() / 100) * 351.858} 351.858`}
+                      strokeDasharray={`${Math.round((getOverallScore() / 100) * 351.858)} 351.858`}
                       strokeLinecap="round"
                     />
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-4xl font-bold text-slate-800">{getOverallScore()}%</span>
+                    <span className="text-4xl font-bold text-slate-800">{Math.round(getOverallScore())}%</span>
                   </div>
                 </div>
               </div>
@@ -852,12 +855,12 @@ export default function Interview({ user, onNavigate }) {
                         stroke="#14b8a6"
                         strokeWidth="6"
                         fill="none"
-                        strokeDasharray={`${(realTimeScores.eyeContact / 100) * 219.911} 219.911`}
+                        strokeDasharray={`${Math.round((Math.round(realTimeScores.eyeContact) / 100) * 219.911)} 219.911`}
                         strokeLinecap="round"
                       />
                     </svg>
                     <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-lg font-bold text-slate-800">{realTimeScores.eyeContact}%</span>
+                      <span className="text-lg font-bold text-slate-800">{Math.round(realTimeScores.eyeContact)}%</span>
                     </div>
                   </div>
                   <div className="text-xs font-medium text-slate-700">Eye Contact</div>
@@ -872,12 +875,12 @@ export default function Interview({ user, onNavigate }) {
                         stroke="#14b8a6"
                         strokeWidth="6"
                         fill="none"
-                        strokeDasharray={`${(realTimeScores.confidence / 100) * 219.911} 219.911`}
+                        strokeDasharray={`${Math.round((Math.round(realTimeScores.confidence) / 100) * 219.911)} 219.911`}
                         strokeLinecap="round"
                       />
                     </svg>
                     <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-lg font-bold text-slate-800">{realTimeScores.confidence}%</span>
+                      <span className="text-lg font-bold text-slate-800">{Math.round(realTimeScores.confidence)}%</span>
                     </div>
                   </div>
                   <div className="text-xs font-medium text-slate-700">Confidence</div>
@@ -892,12 +895,12 @@ export default function Interview({ user, onNavigate }) {
                         stroke="#fb923c"
                         strokeWidth="6"
                         fill="none"
-                        strokeDasharray={`${(realTimeScores.engagement / 100) * 219.911} 219.911`}
+                        strokeDasharray={`${Math.round((Math.round(realTimeScores.engagement) / 100) * 219.911)} 219.911`}
                         strokeLinecap="round"
                       />
                     </svg>
                     <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-lg font-bold text-slate-800">{realTimeScores.engagement}%</span>
+                      <span className="text-lg font-bold text-slate-800">{Math.round(realTimeScores.engagement)}%</span>
                     </div>
                   </div>
                   <div className="text-xs font-medium text-slate-700">Engagement</div>
